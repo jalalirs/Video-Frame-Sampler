@@ -11,7 +11,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>Image Viewer</string>
+   <string>Frames Sampler</string>
   </property>
   <property name="windowIcon">
    <iconset>
