@@ -93,7 +93,6 @@ class Dataset:
 
         for k,v in labels.items():
             self.keys[k] += v
-        print(name,labels)
         self.frames[name] = labels
     def remove_frame(self,name):
         for k,v in self.frames[name].items():
@@ -149,9 +148,12 @@ class Iwindow(QtWidgets.QMainWindow, gui):
         self.vidlength = -1
         self.nameItemDict = {}
         self.dataset = None
-        self.refreshLabels()
+        
         self.imagesList = {}
+        self.folder = None
         self.locked = True
+
+        self.refreshLabels()
         
     def __connectEvents(self):
         self.open_folder.clicked.connect(self.selectDir)
@@ -199,7 +201,9 @@ class Iwindow(QtWidgets.QMainWindow, gui):
             self.locked = False
             
     def refreshLabels(self):
-        path = "/Users/jalalirs/Documents/projects/iOcean/NEOM/dataset/keys/"
+        if self.folder is None:
+            return 
+        path = f"{self.folder}/../keys/"
         labels = sorted(glob.glob(f"{path}/*"))
         self.names = sorted([os.path.basename(f).replace(".png","").replace(".jpeg","") for f in labels])
         self.ls_labels.clear()
@@ -257,7 +261,6 @@ class Iwindow(QtWidgets.QMainWindow, gui):
         
         if label is None:
             currentImgs = self.imagesList        
-            print(len(currentImgs))    
         else:
             currentImgsFrames = self.dataset.get_frames_for_label(label)
             currentImgs = [img for img in self.imagesList if img["name"] in currentImgsFrames]
@@ -286,10 +289,10 @@ class Iwindow(QtWidgets.QMainWindow, gui):
         if not self.folder:
             QtWidgets.QMessageBox.warning(self, 'No Folder Selected', 'Please select a valid Folder')
             return
-        
+        self.refreshLabels()
         self.dataset = Dataset.load(self.folder,self.names)
         self.updateImageList(label=None,reload=True)
-        
+
         for i,v in zip(range(self.dataset.nlabels),self.dataset.get_ordered()):
                 lblitem = self.ls_labels.itemWidget(self.ls_labels.item(i))
                 lblitem.currentCountLabel.setText(str(v))
@@ -396,7 +399,6 @@ class Iwindow(QtWidgets.QMainWindow, gui):
             self.frameNum.setText(f"{self.videoFrameCount}/{self.vidlength}")
             self.cntr = int(self.qlist_images.currentRow())
         self.update_label_list(fname)
-        print("Saving")
         self.dataset.save(self.folder)
 
     def changeImg(self):
