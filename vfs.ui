@@ -251,10 +251,45 @@
               <widget class="QWidget" name="widget_5" native="true">
                <layout class="QVBoxLayout" name="verticalLayout_3">
                 <item>
+                 <widget class="QLineEdit" name="ln_search_key"/>
+                </item>
+                <item>
                  <widget class="QListWidget" name="ls_labels">
                   <property name="selectionMode">
                    <enum>QAbstractItemView::NoSelection</enum>
                   </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QWidget" name="widget_7" native="true">
+                  <property name="minimumSize">
+                   <size>
+                    <width>0</width>
+                    <height>0</height>
+                   </size>
+                  </property>
+                  <layout class="QHBoxLayout" name="horizontalLayout_8">
+                   <item>
+                    <widget class="QPushButton" name="pb_refresh">
+                     <property name="text">
+                      <string>Refresh</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QPushButton" name="pb_lockUnlock">
+                     <property name="text">
+                      <string>Unlock</string>
+                     </property>
+                     <property name="checkable">
+                      <bool>true</bool>
+                     </property>
+                     <property name="checked">
+                      <bool>true</bool>
+                     </property>
+                    </widget>
+                   </item>
+                  </layout>
                  </widget>
                 </item>
                </layout>

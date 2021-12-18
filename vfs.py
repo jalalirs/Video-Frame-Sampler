@@ -24,13 +24,13 @@ def getImages(folder):
     image_list = []
     if os.path.isdir(folder):
         files = [f for f in os.listdir(folder) if f.upper().endswith(VALID_FORMAT)]
-        files = sorted(files,key=lambda x: int(x.split(".")[0][5:]))
+        files = sorted(files,key=lambda x: int(x.split(".")[0].split("_")[-1]))
         for i,file in enumerate(files):
             im_path = os.path.join(folder, file)
             name = file.split(".")[0]
             image_obj = {'name': name, 'path': im_path,"qitem":QtWidgets.QListWidgetItem(name)}
             image_list.append(image_obj)
-    return image_list
+    return sorted(image_list,key=lambda x: x["name"])
 
 class QCustomQWidget (QtWidgets.QWidget):
     def __init__ (self, parent = None):
@@ -61,12 +61,9 @@ class QCustomQWidget (QtWidgets.QWidget):
         self.lbl_name.setStyleSheet('''
             color: rgb(0, 0, 0);
         ''')
-
-
     def setTextDown (self, text):
         self.name = text
         self.lbl_name.setText(text)
-
     def setIcon (self, imagePath):
         img = QtGui.QPixmap(imagePath)
         img = img.scaledToWidth(64)
@@ -81,6 +78,12 @@ class Dataset:
     
     def get_ordered(self):
         return [self.keys[k] for k in self._keys]
+    def get_frames_for_label(self,label):
+        lst = []
+        for k,v in self.frames.items():
+            if label in v:
+                lst.append(k)
+        return lst
 
     def add_frame(self,name,labels):
         if name in self.frames:
@@ -90,7 +93,7 @@ class Dataset:
 
         for k,v in labels.items():
             self.keys[k] += v
-
+        print(name,labels)
         self.frames[name] = labels
     def remove_frame(self,name):
         for k,v in self.frames[name].items():
@@ -115,6 +118,18 @@ class Dataset:
             "keys_list": self._keys,
             "nlabels": self.nlabels
         }
+        keys = {}
+        for f,v in self.frames.items():
+            for k,v2 in v.items():
+                if k in keys:
+                    keys[k] += v2
+                else:
+                    keys[k] = v2
+        for k in self._keys:
+            if k not in keys:
+                keys[k] = 0
+        dataset["keys"] = keys
+        
         with open(f"{folder}/data.json","w") as f:
             f.write(json.dumps(dataset,indent=4))
 
@@ -133,23 +148,11 @@ class Iwindow(QtWidgets.QMainWindow, gui):
         self.videoLoaded = False
         self.vidlength = -1
         self.nameItemDict = {}
-        path = "/Users/jalalirs/Documents/projects/iOcean/NEOM/dataset/keys/"
-        labels = sorted(glob.glob(f"{path}/*"))
-        self.names = sorted([os.path.basename(f).replace(".png","").replace(".jpeg","") for f in labels])
-        self.dataset = Dataset(self.names)
-        for index, name, icon in zip(range(len(labels)),self.names,labels):
-                # Create QCustomQWidget
-                myQCustomQWidget = QCustomQWidget()
-                myQCustomQWidget.setTextDown(name)
-                myQCustomQWidget.setIcon(icon)
-                # Create QListWidgetItem
-                myQListWidgetItem = QtWidgets.QListWidgetItem(self.ls_labels)
-                # Set size hint
-                myQListWidgetItem.setSizeHint(myQCustomQWidget.sizeHint())
-                # Add QListWidgetItem into QListWidget
-                self.ls_labels.addItem(myQListWidgetItem)
-                self.ls_labels.setItemWidget(myQListWidgetItem, myQCustomQWidget)
-
+        self.dataset = None
+        self.refreshLabels()
+        self.imagesList = {}
+        self.locked = True
+        
     def __connectEvents(self):
         self.open_folder.clicked.connect(self.selectDir)
         self.load_video.clicked.connect(self.loadVideo)
@@ -159,10 +162,73 @@ class Iwindow(QtWidgets.QMainWindow, gui):
         self.prev_frame.clicked.connect(self.prevFrame)
         self.prev_im.clicked.connect(self.prevImg)
         self.save_frame.clicked.connect(self.saveFrame)
+        self.pb_refresh.clicked.connect(self.refreshLabels)
         self.qlist_images.itemClicked.connect(self.itemClick)
         self.qlist_images.itemSelectionChanged.connect(self.changeImg)
+        self.ls_labels.itemSelectionChanged.connect(self.update_data_for_label)
         self.goFrame.clicked.connect(self.goToFrame)
+        self.pb_lockUnlock.clicked.connect(self.lockUnlock)
     
+    def on_ln_search_key_textChanged(self):
+        t = self.ln_search_key.text()
+        ls = self.ls_labels
+        if t.strip() == "":
+            for index in range(self.ls_labels.count()):
+                ls.setRowHidden(index, False)
+            return
+        for index in range(ls.count()):
+            item = ls.item(index)
+            itemWidget = self.ls_labels.itemWidget(item)
+            name = itemWidget.name
+            if t not in name:
+                ls.setRowHidden(index, True)
+            else:
+                ls.setRowHidden(index, False)
+
+    def lockUnlock(self):
+        if self.pb_lockUnlock.isChecked():
+            self.pb_lockUnlock.setText("Unlock")
+            self.ls_labels.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
+            self.ls_labels.selectionModel().clear()
+            self.updateImageList(label=None,reload=False)
+            self.locked = True
+        else:
+            self.pb_lockUnlock.setText("lock")
+            self.ls_labels.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
+            self.ls_labels.setCurrentRow(0)
+            self.locked = False
+            
+    def refreshLabels(self):
+        path = "/Users/jalalirs/Documents/projects/iOcean/NEOM/dataset/keys/"
+        labels = sorted(glob.glob(f"{path}/*"))
+        self.names = sorted([os.path.basename(f).replace(".png","").replace(".jpeg","") for f in labels])
+        self.ls_labels.clear()
+        if not self.dataset:
+            self.dataset = Dataset(self.names)
+        else:
+            for n in self.names:
+                if n not in self.dataset._keys:
+                    self.dataset._keys.append(n)
+                    self.dataset._keys = sorted(self.dataset._keys)
+                    self.dataset.nlabels += 1
+                    self.dataset.keys[n] = 0
+            self.dataset.save(self.folder)
+        for index, name, icon in zip(range(len(labels)),self.names,labels):
+                # Create QCustomQWidget
+                myQCustomQWidget = QCustomQWidget()
+                myQCustomQWidget.setTextDown(name)
+                myQCustomQWidget.setIcon(icon)
+                # 
+                myQCustomQWidget.currentCountLabel.setText(str(self.dataset.keys[name]))
+                myQCustomQWidget.currentCount = self.dataset.keys[name]
+                # Create QListWidgetItem
+                myQListWidgetItem = QtWidgets.QListWidgetItem(self.ls_labels)
+                # Set size hint
+                myQListWidgetItem.setSizeHint(myQCustomQWidget.sizeHint())
+                # Add QListWidgetItem into QListWidget
+                self.ls_labels.addItem(myQListWidgetItem)
+                self.ls_labels.setItemWidget(myQListWidgetItem, myQCustomQWidget)
+       
     def delete_img(self):
         try:
             index = int(self.qlist_images.currentRow())
@@ -180,6 +246,39 @@ class Iwindow(QtWidgets.QMainWindow, gui):
             pass
         self.dataset.save(self.folder)
     
+    def updateImageList(self,label=None,reload=False):
+        if self.dataset is None:
+            return
+        for i in range(self.qlist_images.count()):
+            self.qlist_images.takeItem(0)
+
+        if reload:
+            self.imagesList = getImages(self.folder) 
+        
+        if label is None:
+            currentImgs = self.imagesList        
+            print(len(currentImgs))    
+        else:
+            currentImgsFrames = self.dataset.get_frames_for_label(label)
+            currentImgs = [img for img in self.imagesList if img["name"] in currentImgsFrames]
+        
+        self.numImages = len(currentImgs)
+        self.currentImgs = currentImgs
+        # make qitems of the image names
+        for i,img in enumerate(self.currentImgs):
+            self.qlist_images.addItem(img["qitem"])
+            self.nameItemDict[img["name"]] = img["qitem"]
+
+        self.cntr = 0
+        # display first image and enable Pan 
+        if self.numImages > 1: 
+            self.image_viewer.loadImage(currentImgs[self.cntr]['path'])
+            self.imagesList[self.cntr]["qitem"].setSelected(True)
+
+        # enable the next image button on the gui if multiple images are loaded
+        if self.numImages > 1:
+            self.next_im.setEnabled(True)
+
     def selectDir(self):
         ''' Select a directory, make list of images in it and display the first image in the list. '''
         # open 'select folder' dialog box
@@ -188,28 +287,9 @@ class Iwindow(QtWidgets.QMainWindow, gui):
             QtWidgets.QMessageBox.warning(self, 'No Folder Selected', 'Please select a valid Folder')
             return
         
-        self.qlist_images.clear()
-
-        self.imagesList = getImages(self.folder)
-        self.numImages = len(self.imagesList)
-
-        # make qitems of the image names
-        for i,img in enumerate(self.imagesList):
-            self.qlist_images.addItem(img["qitem"])
-            self.nameItemDict[img["name"]] = img["qitem"]
-
-
-        # display first image and enable Pan 
-        if self.numImages > 1:
-            self.cntr = 0
-            self.image_viewer.loadImage(self.imagesList[self.cntr]['path'])
-            self.imagesList[self.cntr]["qitem"].setSelected(True)
-
-        # enable the next image button on the gui if multiple images are loaded
-        if self.numImages > 1:
-            self.next_im.setEnabled(True)
-        
         self.dataset = Dataset.load(self.folder,self.names)
+        self.updateImageList(label=None,reload=True)
+        
         for i,v in zip(range(self.dataset.nlabels),self.dataset.get_ordered()):
                 lblitem = self.ls_labels.itemWidget(self.ls_labels.item(i))
                 lblitem.currentCountLabel.setText(str(v))
@@ -218,9 +298,11 @@ class Iwindow(QtWidgets.QMainWindow, gui):
         
     def loadVideo(self):
         self.videofile = str(QFileDialog.getOpenFileName(None, 'Open File', '.')[0])
+        
         if not self.videofile:
             QtWidgets.QMessageBox.warning(self, 'No file selected', 'Please select a valid video file')
             return
+        self.videoName = os.path.basename(self.videofile).split(".")[0]
         self.cap = cv2.VideoCapture(self.videofile)
         self.videoLoaded = True
         self.vidlength = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -300,7 +382,7 @@ class Iwindow(QtWidgets.QMainWindow, gui):
             return
         idx,fps = self.videoFrameCount, self.fps
         time = str(round(idx/fps,4)).replace(".","_")
-        fname = "frame"+str(idx)#f"{idx}_{time}"
+        fname = f"{self.videoName}_{str(idx)}"
         imageio.imwrite(f"{self.folder}/{fname}.jpg", self.vidframe)
         if fname not in self.nameItemDict.keys():
             item = QtWidgets.QListWidgetItem(fname)
@@ -314,6 +396,7 @@ class Iwindow(QtWidgets.QMainWindow, gui):
             self.frameNum.setText(f"{self.videoFrameCount}/{self.vidlength}")
             self.cntr = int(self.qlist_images.currentRow())
         self.update_label_list(fname)
+        print("Saving")
         self.dataset.save(self.folder)
 
     def changeImg(self):
@@ -324,9 +407,9 @@ class Iwindow(QtWidgets.QMainWindow, gui):
         if self.qlist_images.currentItem() is None:
             return
         name = self.qlist_images.currentItem().text()
-        frameN = int(name.replace("frame",""))
-        self.videoFrameCount = frameN
-        self.frameNum.setText(f"{self.videoFrameCount}/{self.vidlength}")
+        #frameN = int(name.split("frame",""))
+        #self.videoFrameCount = frameN
+        #self.frameNum.setText(f"{self.videoFrameCount}/{self.vidlength}")
 
         labels = {}
         if name in self.dataset.frames:
@@ -338,26 +421,36 @@ class Iwindow(QtWidgets.QMainWindow, gui):
             else:
                 item.currentAddText.setText("0") 
 
+    def update_data_for_label(self):
+        if self.ls_labels.currentItem() is None:
+            return
+        
+        idx = int(self.ls_labels.currentRow())
+        item = self.ls_labels.itemWidget(self.ls_labels.item(idx))
+        label = item.name
+        
+        self.updateImageList(label=label,reload=False)
+        
     def itemClick(self, item):
         self.cntr = int(self.qlist_images.currentRow())
         self._changeImage()
 
     def _changeImage(self):
-        if len(self.imagesList) <= 0:
+        if len(self.currentImgs) <= 0:
             return
-        if os.path.exists(self.imagesList[self.cntr]['path']):
-            self.image_viewer.loadImage(self.imagesList[self.cntr]['path'])
+        if os.path.exists(self.currentImgs[self.cntr]['path']):
+            self.image_viewer.loadImage(self.currentImgs[self.cntr]['path'])
         else:
             self.image_viewer.loadImage(f"{DIR}/icons/noShowDetails.png")
 
     def keyPressEvent(self, e):
-        if e.key()  == QtCore.Qt.Key_Shift:
+        if e.key()  == QtCore.Qt.Key_P:
             self.delete_img()
         if e.key()  == QtCore.Qt.Key_Right:
             self.nextFrame()
         if e.key()  == QtCore.Qt.Key_Left:
             self.prevFrame()
-        if e.key()  == QtCore.Qt.Key_S:
+        if e.key()  == QtCore.Qt.Key_S and self.locked:
             self.saveFrame()
 
     def goToFrame(self):
