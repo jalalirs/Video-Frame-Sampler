@@ -187,6 +187,21 @@ class Iwindow(QtWidgets.QMainWindow, gui):
             else:
                 ls.setRowHidden(index, False)
 
+    def on_ln_search_images_textChanged(self):
+        t = self.ln_search_images.text()
+        ls = self.qlist_images
+        if t.strip() == "":
+            for index in range(self.qlist_images.count()):
+                ls.setRowHidden(index, False)
+            return
+        for index in range(ls.count()):
+            name = self.qlist_images.item(index).text()
+            if t not in name:
+                ls.setRowHidden(index, True)
+            else:
+                ls.setRowHidden(index, False)
+        
+
     def lockUnlock(self):
         if self.pb_lockUnlock.isChecked():
             self.pb_lockUnlock.setText("Unlock")
